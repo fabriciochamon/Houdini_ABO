@@ -11,14 +11,17 @@ The ABO dataset contains ~8000 3d models available for download.
 
 1. Download the "Plugin" folder.
 2. Download the [ABO 3d model archive](https://amazon-berkeley-objects.s3.amazonaws.com/archives/abo-3dmodels.tar) (150 GB! you don't need to extract contents!)
-3. Configure ABO.json inside the plugin folder:
-	1. Point "ABO" var to the plugin root folder
-	2. Point "ABO_MODEL_ARCHIVE" var to the .tar file downloaded
+3. Configure *ABO.json* inside the plugin folder:
+	1. Point "$ABO" to the plugin root folder
+	2. Point "$ABO_MODEL_ARCHIVE" to the .tar file containing 3d models
 	3. Copy ABO.json to your Houdini user folder -> packages
 	
-Once installed restart Houdini and ppen the ABO Python panel to start searching objects:
+Once installed restart Houdini and open the ABO Python panel to start searching objects:
 
 ![](./resources/pypanel.jpg)
+
+Hover the search bar for some tooltips. Hover each thumbnail for extended info on each object.
+
 
 ## Credits & License
 
