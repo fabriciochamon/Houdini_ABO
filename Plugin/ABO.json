@@ -1,0 +1,7 @@
+{
+	"env":[
+		{"ABO": "C:/PLUGINS/Houdini/ABO"},
+		{"ABO_MODEL_ARCHIVE": "C:/Users/Fabricio/Downloads/abo-3dmodels.tar"},
+		{"HOUDINI_PATH": "$ABO"}
+	]
+}
