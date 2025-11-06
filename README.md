@@ -2,6 +2,8 @@
 
 [Amazon Berkeley Objects dataset](https://amazon-berkeley-objects.s3.amazonaws.com/index.html) model file browser for Houdini.
 
+The ABO dataset contains ~8000 3d models available for download.
+
 ![](./resources/abo.gif)
 
 ## Plugin Installation
