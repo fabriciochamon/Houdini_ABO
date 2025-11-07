@@ -1,6 +1,7 @@
 from hutil.PySide import QtWidgets, QtCore, QtGui
 import math, tarfile, os, hou, webbrowser 
 import abo.db as db
+import abo.material_utils as material_utils
 
 class Window(QtWidgets.QWidget):
 
@@ -70,8 +71,17 @@ class Window(QtWidgets.QWidget):
 
 		action_view_high_res_img = context_menu.addAction('View high-res image')
 		action_view_high_res_img.triggered.connect(lambda checked=False, data=data: self.view_highres_img(checked, data))
+
+		action_copy_item_id = context_menu.addAction('Copy item id')
+		action_copy_item_id.triggered.connect(lambda checked=False, data=data['item_id']: self.copy_to_clipboard(checked, data))
 		
 		context_menu.exec_(caller.mapToGlobal(pos)) 
+
+	def copy_to_clipboard(self, checked, data):
+		app = QtWidgets.QApplication.instance()
+		clipboard = app.clipboard()
+		clipboard.setText(data)
+		hou.ui.setStatusMessage('copied!')
 
 	def view_highres_img(self, checked, data):	
 		res = 1024
@@ -91,13 +101,76 @@ class Window(QtWidgets.QWidget):
 			with tarfile.open(archive, 'r') as tar:
 				tar.extract(file_to_extract, path=extraction_path)
 
-		# import (SOP)
-		obj = hou.node('/obj')
-		gltf = obj.createNode('gltf_hierarchy', f'abo_{data["model_id"]}')
+		# find target container
+		target = hou.node(self.target.text().strip())
+		is_lop = target.type().name() in ['stage', 'lopnet']
+		is_obj = target.type().name() in ['obj', 'objnet']
+		container_name = 'ABO_models'
+		container = target.node(container_name)
+		gltf_container = hou.node('/obj')
+		outnull = None
+		if container is None: 
+			if is_lop:
+				container = target.createNode('subnet', container_name)
+				objnet = container.createNode('objnet', 'ABO_obj')
+				lopnet = container.createNode('lopnet', 'ABO_lop')
+				outnull = lopnet.createNode('null', 'OUT')
+				outnull.setColor(hou.Color(0,0,0))
+				merge = lopnet.createNode('merge', 'merge')
+				outnull.setInput(0, merge)
+				graft = container.createNode('graftbranches')
+				graft.parm('srcprimpath1').set('/geo')
+				fetch = container.createNode('fetch')
+				fetch.parm('loppath').set(fetch.relativePathTo(outnull))
+				container.node('output0').setInput(0, graft)
+				graft.setInput(1, fetch)
+				graft.setInput(0, container.indirectInputs()[0])
+				container.layoutChildren()
+				container.moveToGoodPosition()
+				gltf_container = objnet
+			else:
+				container = hou.node('/obj')
+		else:
+			if is_lop:
+				objnet = container.node('ABO_obj')
+				lopnet = container.node('ABO_lop')
+				merge = lopnet.node('merge')		
+				gltf_container = container.node('ABO_obj')
+			else:
+				gltf_container = hou.node('/obj')
+
+		# import gltf
+		gltf = gltf_container.createNode('gltf_hierarchy', f'abo_{data["model_id"]}')
 		gltf.parm('filename').set(f'$HIP/geo/ABO/{file_to_extract}')
 		gltf.parm('assetfolder').set(f'$HIP/geo/ABO/{file_to_extract}'.replace('.glb', ''))
 		gltf.parm('buildscene').pressButton()
-		gltf.moveToGoodPosition()		
+		gltf_geo = [node for node in gltf.children() if node.type().name()=='geo'][0]
+		gltf_normal = gltf_geo.createNode('normal')
+		gltf_normal.setInput(0, gltf_geo.renderNode())
+		gltf_normal.setDisplayFlag(1)
+		gltf_normal.setRenderFlag(1)
+		gltf_normal.moveToGoodPosition()
+		gltf.moveToGoodPosition()
+		gltf_matnet = gltf.node('materials')
+
+		# if LOP network, import and convert material
+		item = data["item_id"]
+		if is_lop:
+			sopimport = lopnet.createNode('sopimport', f'{item}')
+			sopimport.parm('pathprefix').set(f'/geo/abo/{item}/mesh')
+			sopimport.parm('soppath').set(sopimport.relativePathTo(gltf_geo))
+			matlib = lopnet.createNode('materiallibrary')
+			gltf_mat = gltf_matnet.children()[0]
+			basecolor = gltf_mat.evalParm('basecolor_texture') if gltf_mat.evalParm('basecolor_useTexture') else None
+			arm = gltf_mat.evalParm('rough_texture') if gltf_mat.evalParm('rough_useTexture') else None
+			normal = gltf_mat.evalParm('baseNormal_texture') if gltf_mat.evalParm('baseBumpAndNormal_enable') else None
+			useMetallic = gltf_mat.evalParm('metallic_useTexture')
+			mat = material_utils.add_material(matlib, f'material_{item}', basecolor=basecolor, arm=arm, normal=normal, useMetallic=useMetallic)
+			matlib.setInput(0, sopimport)
+			matlib.parm('matpathprefix').set(f'/geo/abo/{item}/materials/')
+			matlib.parm('geopath1').set(f'/geo/abo/{item}/mesh')
+			merge.setInput(len(merge.inputs()), matlib)
+			lopnet.layoutChildren()
 
 		# status message
 		hou.ui.setStatusMessage(f'Model {data["model_id"]} was loaded!', hou.severityType.Message)		
@@ -142,9 +215,9 @@ class Window(QtWidgets.QWidget):
 		num_items = len(self.grid_widgets)
 		item_start = ((self.page-1)*num_items)+1
 		item_end = item_start + num_items - 1
-		self.status.setText(f'Displaying items: {item_start} to {item_end}.   ')
+		self.status.setText(f'    Displaying items: {item_start} to {item_end}.   ')
 		if num_items == 0 :
-			self.status.setText(f'No items found.   ')
+			self.status.setText(f'    No items found.   ')
 
 	def page_up(self):
 		page = int(self.page_cur.text())+1
@@ -172,7 +245,7 @@ class Window(QtWidgets.QWidget):
 			self.searchbar.setStyleSheet('')
 
 	def get_searchbar_tooltip(self):
-		html = 'Type to search in all fields.<br/><br/>To search in a specific field, use the syntax <b>field_name: value</b> (The search bar will turn blue, indicating this is a unique field search)<br/><br/>Hover any image thumbnail to access field names.'
+		html = 'Type to search in all relevant fields.<br/><br/>To search in a specific field, use the syntax <b>field_name: value</b> (The search bar will turn blue, indicating this is a unique field search)<br/><br/>Hover any image thumbnail to access field names.'
 		return html
 
 	def _setupUI(self):
@@ -249,10 +322,30 @@ class Window(QtWidgets.QWidget):
 		self.icon_size.setValue(10)
 		self.icon_size.valueChanged.connect(lambda value, container_size=self.size(): self.resize_images(container_size, value))
 		self.icon_size.setToolTip('Move slider or use "Ctrl + MouseWheel" to increase/decrease thumbnail sizes')
-		bottom_layout.addWidget(QtWidgets.QLabel('Thumb size: '))	
+		bottom_layout.addWidget(QtWidgets.QLabel('Thumb size: '))
 		bottom_layout.addWidget(self.icon_size)	
-		bottom_layout.addStretch()
+		
+		# target context for loading 3d models
+		bottom_layout.addWidget(QtWidgets.QLabel('  Target network: '))
+		self.target = QtWidgets.QLineEdit('/stage')
+		self.target.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred) 
+		bottom_layout.addWidget(self.target)	
 
+		# target menu
+		btn_target_menu = QtWidgets.QPushButton()
+		target_menu_icon = hou.qt.Icon('BUTTONS_listview') 
+		btn_target_menu.setIcon(target_menu_icon)
+		btn_target_menu.setStyleSheet('QPushButton {border: none;}')
+		btn_target_menu.setFixedWidth(50)
+		btn_target_menu.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+		self.target_menu = QtWidgets.QMenu(self)
+		btn_target_menu.setMenu(self.target_menu)
+		act_target_obj = self.target_menu.addAction('/obj')
+		act_target_obj.triggered.connect(lambda: self.target.setText('/obj'))		
+		act_target_stage = self.target_menu.addAction('/stage')
+		act_target_stage.triggered.connect(lambda: self.target.setText('/stage'))
+		bottom_layout.addWidget(btn_target_menu)	
+		
 		# status message
 		self.status = QtWidgets.QLabel()
 		self.status.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
