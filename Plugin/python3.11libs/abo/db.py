@@ -19,13 +19,16 @@ def get_all(where='', records_per_page=36, page=1):
 			if ":" in where:
 				field = where.split(':')[0].strip()
 				where = where.split(':')[1].strip()
-				cursor.execute(f'SELECT * FROM listings WHERE {field} LIKE ? LIMIT ? OFFSET ?', 
-								(
-									'%'+where+'%', 
-									records_per_page, 
-									offset
+				try:
+					cursor.execute(f'SELECT * FROM listings WHERE {field} LIKE ? LIMIT ? OFFSET ?', 
+									(
+										'%'+where+'%', 
+										records_per_page, 
+										offset
+									)
 								)
-							)
+				except:
+					return []
 
 			# search everywhere
 			else:

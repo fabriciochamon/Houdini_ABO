@@ -19,14 +19,25 @@ class Window(QtWidgets.QWidget):
 		
 		self._setupUI()
 
+	def wheelEvent(self, event: QtGui.QWheelEvent):
+		incr = 2
+		if event.modifiers() == QtCore.Qt.ControlModifier:
+			if event.angleDelta().y() > 0:
+				self.icon_size.setValue(self.icon_size.value()+incr)
+			else:
+				self.icon_size.setValue(self.icon_size.value()-incr)
+			event.accept()
+		else:
+			super().wheelEvent(event)
+
 	def resizeEvent(self, event: QtGui.QResizeEvent):
 		container_size = event.size()
-		self.resize_images(container_size)
+		self.resize_images(container_size, self.icon_size.value())
 		
-	def resize_images(self, container_size):
+	def resize_images(self, container_size, icon_mult=10):
 		for i, widget in enumerate(self.grid_widgets):
 			pixmap = self.orig_pixmaps[i]
-			scaled_pixmap = pixmap.scaled((container_size*0.9)/self.grid_cols, QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation)
+			scaled_pixmap = pixmap.scaled((container_size*0.9)/self.grid_cols*(icon_mult/10), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation)
 			widget.setPixmap(scaled_pixmap)
 
 	def get_model_tooltip_html(self, data):
@@ -51,7 +62,7 @@ class Window(QtWidgets.QWidget):
 
 		return html
 
-	def image_menu(self, pos, caller, data):
+	def thumb_context_menu(self, pos, caller, data):
 		context_menu = QtWidgets.QMenu(self)
 
 		action_import_model = context_menu.addAction('Import 3d model')
@@ -116,7 +127,7 @@ class Window(QtWidgets.QWidget):
 			image_label.setPixmap(pixmap.scaled(self.thumb_size, pixmap.height(), QtCore.Qt.KeepAspectRatio))
 			image_label.setToolTip(self.get_model_tooltip_html(item))
 			image_label.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
-			image_label.customContextMenuRequested.connect(lambda pos, caller=image_label, data=item: self.image_menu(pos, caller, data))
+			image_label.customContextMenuRequested.connect(lambda pos, caller=image_label, data=item: self.thumb_context_menu(pos, caller, data))
 			self.grid_widgets.append(image_label)
 			self.orig_pixmaps.append(pixmap)
 		
@@ -125,7 +136,7 @@ class Window(QtWidgets.QWidget):
 			self.grid_layout.addWidget(image_label, row, col, QtCore.Qt.AlignCenter)
 
 		# responsive thumbs
-		self.resize_images(self.size())
+		self.resize_images(self.size(), self.icon_size.value())
 
 		# set status message
 		num_items = len(self.grid_widgets)
@@ -180,12 +191,22 @@ class Window(QtWidgets.QWidget):
 		self.searchbar.setToolTip(self.get_searchbar_tooltip())
 		searchbar_layout.addWidget(searchbar_label)
 		searchbar_layout.addWidget(self.searchbar)
-		pag_prev = QtWidgets.QPushButton('<')
-		pag_prev.clicked.connect(self.page_down)
-		pag_next = QtWidgets.QPushButton('>')
-		pag_next.clicked.connect(self.page_up)
+		clear_icon = hou.qt.Icon('BUTTONS_delete_mini') 
+		clear_button = QtWidgets.QPushButton()
+		clear_button.setIcon(clear_icon)
+		clear_button.setStyleSheet('QPushButton {border: none;}')
+		clear_button.setFixedWidth(20)
+		clear_button.setToolTip('Clear search')
+		clear_button.clicked.connect(lambda: self.searchbar.setText(''))
+		clear_button.clicked.connect(lambda: self.searchbar.setFocus())
+		searchbar_layout.addWidget(clear_button)
+		searchbar_layout.addItem(QtWidgets.QSpacerItem(10, 1))
+		self.pag_prev = QtWidgets.QPushButton('<')
+		self.pag_prev.clicked.connect(self.page_down)
+		self.pag_next = QtWidgets.QPushButton('>')
+		self.pag_next.clicked.connect(self.page_up)
 		searchbar_layout.addWidget(QtWidgets.QLabel('   page: '))
-		searchbar_layout.addWidget(pag_prev)
+		searchbar_layout.addWidget(self.pag_prev)
 		self.page_cur = QtWidgets.QLineEdit('1')
 		self.page_cur.setFixedWidth(50)
 		self.page_cur.setAlignment(QtCore.Qt.AlignCenter)
@@ -194,7 +215,7 @@ class Window(QtWidgets.QWidget):
 		self.page_cur.setValidator(only_int)
 		self.page_cur.textChanged.connect(self.page_change)
 		searchbar_layout.addWidget(self.page_cur)
-		searchbar_layout.addWidget(pag_next)
+		searchbar_layout.addWidget(self.pag_next)
 		main_layout.addLayout(searchbar_layout)
 		main_layout.addSpacing(5)
 
@@ -206,7 +227,7 @@ class Window(QtWidgets.QWidget):
 		scroll_widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 		self.grid_layout = QtWidgets.QGridLayout()
 		self.grid_layout.setContentsMargins(0,0,0,0)
-		self.grid_layout.setSpacing(0)
+		self.grid_layout.setSpacing(2)
 		scroll_widget.setLayout(self.grid_layout)
 		scroll_area.setWidget(scroll_widget)
 
@@ -219,14 +240,30 @@ class Window(QtWidgets.QWidget):
 		
 		main_layout.addWidget(scroll_area)
 
-		# status messages		
+		# thumbnail size slider 		
+		bottom_layout = QtWidgets.QHBoxLayout()
+		self.icon_size = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+		self.icon_size.setFixedWidth(100)
+		self.icon_size.setMinimum(5)
+		self.icon_size.setMaximum(40)
+		self.icon_size.setValue(10)
+		self.icon_size.valueChanged.connect(lambda value, container_size=self.size(): self.resize_images(container_size, value))
+		self.icon_size.setToolTip('Move slider or use "Ctrl + MouseWheel" to increase/decrease thumbnail sizes')
+		bottom_layout.addWidget(QtWidgets.QLabel('Thumb size: '))	
+		bottom_layout.addWidget(self.icon_size)	
+		bottom_layout.addStretch()
+
+		# status message
 		self.status = QtWidgets.QLabel()
 		self.status.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-		main_layout.addWidget(self.status)		
-		#main_layout.addSpacing(5)
+		bottom_layout.addWidget(self.status)	
+		main_layout.addLayout(bottom_layout)	
 
-		# image grid
-		self.build_grid()
+		# build image grid
+		# (uses a timer, so the window gets evaluated before painting the image grid
+		# this way we can get the correct widget size to calc number of columns that best fit the window)
+		QtCore.QTimer.singleShot(100, self.build_grid)
 
-		
+
+
 		
